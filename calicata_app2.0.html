@@ -6,6 +6,7 @@
 <title>Calicata Pro - Registro de Humedad & CE</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Serif+Display&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -297,6 +298,20 @@
   }
   .badge-water { background: rgba(74,144,164,0.15); color: var(--water); }
   .badge-ce { background: rgba(193,127,89,0.15); color: var(--ce); }
+  .badge-compact-baja { background: rgba(74,124,89,0.15); color: var(--leaf-dark); }
+  .badge-compact-media { background: rgba(193,127,89,0.15); color: var(--ce); }
+  .badge-compact-alta { background: rgba(192,57,43,0.15); color: #C0392B; }
+
+  /* Foto */
+  .photo-preview { margin-top: 0.5rem; max-width: 200px; max-height: 200px; border-radius: 8px; border: 1.5px solid var(--border); display: block; object-fit: cover; }
+
+  /* Estado de sincronización con Supabase */
+  .sync-badge {
+    font-size: 0.72rem; padding: 0.3rem 0.7rem; border-radius: 50px; font-weight: 700;
+    white-space: nowrap;
+  }
+  .sync-badge.online { background: rgba(255,255,255,0.18); color: #fff; }
+  .sync-badge.offline { background: #C0392B; color: #fff; }
 
   /* History cards */
   .history-grid {
@@ -497,11 +512,12 @@
 <div class="header">
   <h1><span class="icon">🌳</span> Calicata Pro</h1>
   <div style="display:flex; align-items:center; gap:0.7rem;">
+    <span class="sync-badge online" id="syncStatus">☁️ En línea</span>
     <button class="btn-new-calicata" onclick="nuevaCalicata()">➕ Nueva Calicata</button>
     <div class="nav-tabs">
-      <button class="nav-tab active" onclick="showPage('register')">📋 Registrar</button>
-      <button class="nav-tab" onclick="showPage('history')">📁 Historial</button>
-      <button class="nav-tab" onclick="showPage('config')">⚙️ Config</button>
+      <button class="nav-tab active" onclick="showPage('register', this)">📋 Registrar</button>
+      <button class="nav-tab" onclick="showPage('history', this)">📁 Historial</button>
+      <button class="nav-tab" onclick="showPage('config', this)">⚙️ Config</button>
     </div>
   </div>
 </div>
@@ -575,6 +591,11 @@
           <datalist id="sectorList"></datalist>
         </div>
         <div class="form-group">
+          <label>Responsable</label>
+          <input type="text" id="calicataResponsable" list="responsableList" placeholder="Nombre de quien mide">
+          <datalist id="responsableList"></datalist>
+        </div>
+        <div class="form-group">
           <label>Capacidad de Campo (%)</label>
           <input type="number" id="calicataCC" step="0.1" min="0" max="100" placeholder="Ej: 28.5">
         </div>
@@ -597,6 +618,15 @@
         <div class="form-group">
           <label>Hora</label>
           <input type="time" id="measureTime">
+        </div>
+        <div class="form-group full">
+          <label>Foto del Perfil de Suelo</label>
+          <input type="file" id="calicataFoto" accept="image/*" onchange="onFotoSelected(event)">
+          <div id="fotoPreviewWrap" style="display:none;">
+            <img id="fotoPreview" class="photo-preview" alt="Foto del perfil de suelo">
+            <div><button type="button" class="btn btn-secondary" style="margin-top:0.4rem; padding:0.4rem 0.8rem; font-size:0.78rem;" onclick="removeFoto()">🗑️ Quitar foto</button></div>
+          </div>
+          <div class="location-status" id="fotoStatus">Puedes tomar una foto con la cámara o elegir una desde la galería.</div>
         </div>
       </div>
 
@@ -649,6 +679,7 @@
       </table>
     </div>
     <p class="measure-table-note">🔨 Resistencia a la penetración en N (según tu penetrómetro) · deja vacío el punto que no midas.</p>
+    <div id="compactionSummaryWrap" style="margin-top:1rem;"></div>
   </div>
 
   <!-- Trend chart + summary table -->
@@ -717,6 +748,20 @@
         <button class="btn btn-primary" onclick="addDepth()">➕ Agregar Profundidad</button>
       </div>
       <div class="section-divider"></div>
+      <div class="card-title">🔨 Umbrales de Compactación</div>
+      <div class="card-subtitle">Define desde qué valor (N) se considera Media y Alta compactación, según tu penetrómetro. Ajusta estos números a tu equipo y criterio agronómico.</div>
+      <div style="display:flex; gap:1rem; flex-wrap:wrap; align-items:flex-end; margin-bottom:1rem;">
+        <div class="form-group" style="max-width:140px;">
+          <label>Baja hasta (N)</label>
+          <input type="number" id="compactionBajaInput" step="0.1" min="0">
+        </div>
+        <div class="form-group" style="max-width:140px;">
+          <label>Media hasta (N)</label>
+          <input type="number" id="compactionMediaInput" step="0.1" min="0">
+        </div>
+        <button class="btn btn-primary" onclick="saveCompactionThresholds()">💾 Guardar Umbrales</button>
+      </div>
+      <div class="section-divider"></div>
       <div class="card-title">🗑️ Gestión de Datos</div>
       <div class="card-subtitle">Cuidado: estas acciones no se pueden deshacer.</div>
       <div class="btn-group">
@@ -744,7 +789,9 @@
         <p>• Puntos de Humedad/CE: 3 por profundidad (izquierdo, centro, derecho)</p>
         <p>• Puntos de Compactación: 7 por profundidad (60, 40, 20, 0, 20, 40, 60 cm)</p>
         <p>• Variables: Humedad (%), Conductividad Eléctrica (dS/m) y Compactación (N)</p>
-        <p>• Datos guardados de forma persistente en tu cuenta de Claude (o en este navegador vía IndexedDB si se usa fuera de Claude.ai)</p>
+        <p>• Datos guardados en la nube (Supabase): todo el equipo ve el mismo historial, desde cualquier celular o computador, apenas guarda una calicata.</p>
+        <p>• El formulario en curso (antes de guardar) se respalda solo en este dispositivo, por si se corta la conexión a medio llenar.</p>
+        <p>• Las fotos del perfil de suelo se guardan en la nube y quedan disponibles en el informe PDF.</p>
       </div>
     </div>
   </div>
@@ -758,85 +805,35 @@
 <script>
 // ==================== STATE ====================
 
-// El guardado persistente (window.storage) solo existe cuando la app se usa
-// como artefacto dentro de Claude.ai. Si se abre el archivo .html descargado
-// directamente en el navegador (doble clic, file://, u otro sitio), esa
-// función no está disponible y no se puede guardar el historial.
-function hasStorage() {
-  return typeof window !== 'undefined' && !!window.storage && typeof window.storage.set === 'function';
-}
-const STORAGE_UNAVAILABLE_MSG = '⚠️ No hay almacenamiento disponible en este navegador (ni Claude.ai ni IndexedDB). El historial no se podrá guardar.';
+// ==================== SUPABASE ====================
+// Toda la app usa el mismo proyecto Supabase (misma anon key para todo el
+// equipo, sin login individual). El historial y la configuración quedan
+// centralizados: cualquiera que guarde una calicata la ve todo el equipo,
+// desde cualquier celular o computador.
+const SUPABASE_URL = 'https://qmxcjbyqeazaeionpfli.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFteGNqYnlxZWF6YWVpb25wZmxpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAzMjM4MTIsImV4cCI6MjA5NTg5OTgxMn0.amhvn_ALkKYQAt741zfNYnc447idKv-WNqbM-BUvLTw';
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const FOTOS_BUCKET = 'calicata-fotos';
 
-// ==================== ALMACENAMIENTO HÍBRIDO ====================
-// 1) Dentro de Claude.ai usa window.storage (gratis, seguro, ligado a tu cuenta).
-// 2) Si el archivo se abre fuera de Claude.ai (descargado, doble clic, otro sitio),
-//    cae automáticamente a IndexedDB: la base de datos nativa del navegador,
-//    100% gratuita, segura (aislada por sitio/origen) y sin necesidad de crear cuenta.
-const DB_NAME = 'CalicataProDB';
-const DB_STORE = 'kv';
-let _idbPromise = null;
-
-function openIDB() {
-  if (_idbPromise) return _idbPromise;
-  _idbPromise = new Promise((resolve, reject) => {
-    if (!('indexedDB' in window)) { reject(new Error('IndexedDB no disponible en este navegador')); return; }
-    const req = indexedDB.open(DB_NAME, 1);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(DB_STORE)) db.createObjectStore(DB_STORE);
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-  return _idbPromise;
-}
-
-const AppStorage = {
-  mode: null, // 'claude' | 'indexeddb' | 'none'
-  async detect() {
-    if (hasStorage()) { this.mode = 'claude'; return 'claude'; }
-    try { await openIDB(); this.mode = 'indexeddb'; return 'indexeddb'; }
-    catch (e) { this.mode = 'none'; return 'none'; }
-  },
-  async get(key) {
-    if (this.mode === 'claude') return window.storage.get(key);
-    if (this.mode === 'indexeddb') {
-      const db = await openIDB();
-      return new Promise((resolve, reject) => {
-        const tx = db.transaction(DB_STORE, 'readonly');
-        const req = tx.objectStore(DB_STORE).get(key);
-        req.onsuccess = () => resolve(req.result !== undefined ? { key, value: req.result } : null);
-        req.onerror = () => reject(req.error);
-      });
-    }
-    return null;
-  },
-  async set(key, value) {
-    if (this.mode === 'claude') return window.storage.set(key, value);
-    if (this.mode === 'indexeddb') {
-      const db = await openIDB();
-      return new Promise((resolve, reject) => {
-        const tx = db.transaction(DB_STORE, 'readwrite');
-        tx.objectStore(DB_STORE).put(value, key);
-        tx.oncomplete = () => resolve({ key, value });
-        tx.onerror = () => reject(tx.error);
-      });
-    }
-    throw new Error('Sin almacenamiento disponible en este navegador');
-  },
-  async delete(key) {
-    if (this.mode === 'claude') return window.storage.delete(key);
-    if (this.mode === 'indexeddb') {
-      const db = await openIDB();
-      return new Promise((resolve, reject) => {
-        const tx = db.transaction(DB_STORE, 'readwrite');
-        tx.objectStore(DB_STORE).delete(key);
-        tx.oncomplete = () => resolve({ key, deleted: true });
-        tx.onerror = () => reject(tx.error);
-      });
-    }
+function setSyncStatus(state) {
+  const el = document.getElementById('syncStatus');
+  if (!el) return;
+  if (state === 'offline') {
+    el.textContent = '⚠️ Sin conexión';
+    el.className = 'sync-badge offline';
+  } else {
+    el.textContent = '☁️ En línea';
+    el.className = 'sync-badge online';
   }
-};
+}
+window.addEventListener('online', () => setSyncStatus('online'));
+window.addEventListener('offline', () => setSyncStatus('offline'));
+
+// ==================== BORRADOR LOCAL ====================
+// El formulario en curso (antes de "Guardar en Historial") se respalda solo
+// en este dispositivo vía localStorage, para no perder lo escrito si se
+// corta la conexión a medio llenar. El historial "de verdad" vive en Supabase.
+const DRAFT_KEY = 'calicataCurrentDraft_v1';
 
 const POSITIONS = [
   { key: 'izq', label: 'Izquierdo', short: 'IZQ' },
@@ -862,7 +859,9 @@ function avgCE(arr) {
 }
 
 let config = {
-  depths: [20, 40, 60] // cm
+  depths: [20, 40, 60], // cm
+  compactionBajaMax: 20,
+  compactionMediaMax: 35
 };
 
 let currentCalicata = {
@@ -870,6 +869,7 @@ let currentCalicata = {
   name: '',
   cuartel: '',
   sector: '',
+  responsable: '',
   capacidadCampo: '',
   ultimoRiego: '',
   location: '',
@@ -877,6 +877,7 @@ let currentCalicata = {
   lon: null,
   accuracy: null,
   locTimestamp: null,
+  fotoUrl: null,
   date: new Date().toISOString().split('T')[0],
   time: new Date().toTimeString().slice(0,5)
 };
@@ -887,20 +888,16 @@ let selectedPoint = null; // { depth, position }
 
 // ==================== INIT ====================
 async function init() {
-  const mode = await AppStorage.detect();
-  if (mode === 'indexeddb') {
-    toast('💾 Guardando en este navegador (IndexedDB) — abre la app en Claude.ai para respaldo en tu cuenta.');
-  } else if (mode === 'none') {
-    toast(STORAGE_UNAVAILABLE_MSG);
-  }
+  setSyncStatus(navigator.onLine === false ? 'offline' : 'online');
   await loadConfig();
   try {
-    const saved = await AppStorage.get('calicataCurrent');
-    if (saved && saved.value) {
-      const data = JSON.parse(saved.value);
+    const raw = localStorage.getItem(DRAFT_KEY);
+    if (raw) {
+      const data = JSON.parse(raw);
       currentCalicata.name = data.name || '';
       currentCalicata.cuartel = data.cuartel || '';
       currentCalicata.sector = data.sector || '';
+      currentCalicata.responsable = data.responsable || '';
       currentCalicata.capacidadCampo = data.capacidadCampo || '';
       currentCalicata.ultimoRiego = data.ultimoRiego || '';
       currentCalicata.recordId = data.recordId || null;
@@ -909,6 +906,7 @@ async function init() {
       currentCalicata.lon = data.lon ?? null;
       currentCalicata.accuracy = data.accuracy ?? null;
       currentCalicata.locTimestamp = data.locTimestamp ?? null;
+      currentCalicata.fotoUrl = data.fotoUrl || null;
       currentMeasurements = data.measurements || [];
       currentCompaction = data.compaction || [];
     }
@@ -918,35 +916,66 @@ async function init() {
   if (currentCalicata.name) document.getElementById('calicataName').value = currentCalicata.name;
   if (currentCalicata.cuartel) document.getElementById('calicataCuartel').value = currentCalicata.cuartel;
   if (currentCalicata.sector) document.getElementById('calicataSector').value = currentCalicata.sector;
+  if (currentCalicata.responsable) document.getElementById('calicataResponsable').value = currentCalicata.responsable;
   if (currentCalicata.capacidadCampo) document.getElementById('calicataCC').value = currentCalicata.capacidadCampo;
   if (currentCalicata.ultimoRiego) document.getElementById('calicataUltimoRiego').value = currentCalicata.ultimoRiego;
   if (currentCalicata.location) document.getElementById('calicataLocation').value = currentCalicata.location;
   renderLocationStatus();
+  renderFotoPreview();
   renderCalicata();
   renderMeasureTable();
   renderCompactionTable();
   updateStats();
   populateCuartelDatalist();
+  populateResponsableDatalist();
 }
 
 async function loadConfig() {
-  if (!AppStorage.mode || AppStorage.mode === 'none') return;
   try {
-    const saved = await AppStorage.get('calicataConfig');
-    if (saved && saved.value) config = JSON.parse(saved.value);
-  } catch(e) { /* usar valores por defecto */ }
+    const { data, error } = await sb.from('calicata_config').select('*').eq('id', 1).single();
+    if (error) throw error;
+    if (data) {
+      config.depths = (data.depths && data.depths.length) ? data.depths : config.depths;
+      config.compactionBajaMax = data.compaction_baja_max ?? config.compactionBajaMax;
+      config.compactionMediaMax = data.compaction_media_max ?? config.compactionMediaMax;
+    }
+    try { localStorage.setItem('calicataConfigCache_v1', JSON.stringify(config)); } catch(e2) {}
+  } catch (e) {
+    console.error('No se pudo cargar la configuración desde Supabase:', e);
+    try {
+      const cached = localStorage.getItem('calicataConfigCache_v1');
+      if (cached) config = JSON.parse(cached);
+    } catch(e2) {}
+    toast('⚠️ Sin conexión con la base de datos. Usando la última configuración guardada en este dispositivo.');
+  }
 }
+
 async function saveConfig() {
-  if (!AppStorage.mode || AppStorage.mode === 'none') { toast(STORAGE_UNAVAILABLE_MSG); return; }
-  try { await AppStorage.set('calicataConfig', JSON.stringify(config)); } catch(e) { console.error('Error guardando config:', e); }
-}
-async function saveCurrentToStorage() {
-  if (!AppStorage.mode || AppStorage.mode === 'none') return; // el borrador es silencioso; el aviso se muestra al Guardar en Historial
   try {
-    await AppStorage.set('calicataCurrent', JSON.stringify({
+    await sb.from('calicata_config').upsert({
+      id: 1,
+      depths: config.depths,
+      compaction_baja_max: config.compactionBajaMax,
+      compaction_media_max: config.compactionMediaMax,
+      updated_at: new Date().toISOString()
+    });
+    try { localStorage.setItem('calicataConfigCache_v1', JSON.stringify(config)); } catch(e2) {}
+  } catch (e) {
+    console.error('Error guardando configuración en Supabase:', e);
+    toast('⚠️ No se pudo guardar la configuración en la nube (revisa tu conexión)');
+  }
+}
+
+// El borrador (formulario en curso, antes de "Guardar en Historial") es
+// solo local: no necesita ir a Supabase, así se sigue escribiendo aunque
+// se corte la conexión, y no genera tráfico por cada celda.
+function saveCurrentToStorage() {
+  try {
+    localStorage.setItem(DRAFT_KEY, JSON.stringify({
       name: document.getElementById('calicataName').value || currentCalicata.name,
       cuartel: document.getElementById('calicataCuartel').value || currentCalicata.cuartel,
       sector: document.getElementById('calicataSector').value || currentCalicata.sector,
+      responsable: document.getElementById('calicataResponsable').value || currentCalicata.responsable,
       capacidadCampo: document.getElementById('calicataCC').value || currentCalicata.capacidadCampo,
       ultimoRiego: document.getElementById('calicataUltimoRiego').value || currentCalicata.ultimoRiego,
       recordId: currentCalicata.recordId,
@@ -955,10 +984,15 @@ async function saveCurrentToStorage() {
       lon: currentCalicata.lon,
       accuracy: currentCalicata.accuracy,
       locTimestamp: currentCalicata.locTimestamp,
+      fotoUrl: currentCalicata.fotoUrl,
       measurements: currentMeasurements,
       compaction: currentCompaction
     }));
-  } catch(e) { console.error('Error guardando borrador:', e); }
+  } catch(e) { console.error('Error guardando borrador local:', e); }
+}
+
+function clearDraftFromStorage() {
+  try { localStorage.removeItem(DRAFT_KEY); } catch(e) {}
 }
 
 // Evita saturar el guardado con una escritura por cada celda que se completa:
@@ -979,6 +1013,15 @@ async function populateCuartelDatalist() {
     const sectores = [...new Set(hist.map(h => (h.sector || '').trim()).filter(Boolean))].sort((a,b) => a.localeCompare(b, 'es'));
     const dlS = document.getElementById('sectorList');
     if (dlS) dlS.innerHTML = sectores.map(s => '<option value="' + escapeHtml(s) + '"></option>').join('');
+  } catch(e) {}
+}
+
+async function populateResponsableDatalist() {
+  try {
+    const hist = await getHistory();
+    const responsables = [...new Set(hist.map(h => (h.responsable || '').trim()).filter(Boolean))].sort((a,b) => a.localeCompare(b, 'es'));
+    const dl = document.getElementById('responsableList');
+    if (dl) dl.innerHTML = responsables.map(r => '<option value="' + escapeHtml(r) + '"></option>').join('');
   } catch(e) {}
 }
 
@@ -1054,6 +1097,51 @@ function getGPSLocation() {
   );
 }
 
+// ==================== FOTO DEL PERFIL DE SUELO ====================
+function renderFotoPreview() {
+  const wrap = document.getElementById('fotoPreviewWrap');
+  const img = document.getElementById('fotoPreview');
+  if (!wrap || !img) return;
+  if (currentCalicata.fotoUrl) {
+    img.src = currentCalicata.fotoUrl;
+    wrap.style.display = 'block';
+  } else {
+    wrap.style.display = 'none';
+  }
+}
+
+async function onFotoSelected(e) {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  const statusEl = document.getElementById('fotoStatus');
+  statusEl.textContent = '⏳ Subiendo foto...';
+  try {
+    const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+    const path = (currentCalicata.recordId || genRecordId()) + '_' + Date.now() + '.' + ext;
+    const { error: upErr } = await sb.storage.from(FOTOS_BUCKET).upload(path, file, { upsert: true });
+    if (upErr) throw upErr;
+    const { data } = sb.storage.from(FOTOS_BUCKET).getPublicUrl(path);
+    currentCalicata.fotoUrl = data.publicUrl;
+    renderFotoPreview();
+    saveCurrentToStorage();
+    statusEl.textContent = '✅ Foto subida a la nube.';
+    toast('📷 Foto subida correctamente');
+  } catch (err) {
+    console.error('Error subiendo foto:', err);
+    statusEl.textContent = '⚠️ No se pudo subir la foto (revisa tu conexión) e intenta de nuevo.';
+    toast('⚠️ No se pudo subir la foto');
+  }
+}
+
+function removeFoto() {
+  currentCalicata.fotoUrl = null;
+  const input = document.getElementById('calicataFoto');
+  if (input) input.value = '';
+  document.getElementById('fotoStatus').textContent = 'Puedes tomar una foto con la cámara o elegir una desde la galería.';
+  renderFotoPreview();
+  saveCurrentToStorage();
+}
+
 // ==================== NUEVA CALICATA ====================
 async function nuevaCalicata() {
   if (currentMeasurements.length > 0) {
@@ -1073,12 +1161,14 @@ async function nuevaCalicata() {
 function resetCalicataForm() {
   const cuartelPrevio = document.getElementById('calicataCuartel').value.trim();
   const sectorPrevio = document.getElementById('calicataSector').value.trim();
+  const responsablePrevio = document.getElementById('calicataResponsable').value.trim();
   const ccPrevia = document.getElementById('calicataCC').value.trim();
   currentCalicata = {
     recordId: null,
     name: '',
     cuartel: cuartelPrevio,
     sector: sectorPrevio,
+    responsable: responsablePrevio,
     capacidadCampo: ccPrevia,
     ultimoRiego: '',
     location: '',
@@ -1086,6 +1176,7 @@ function resetCalicataForm() {
     lon: null,
     accuracy: null,
     locTimestamp: null,
+    fotoUrl: null,
     date: new Date().toISOString().split('T')[0],
     time: new Date().toTimeString().slice(0,5)
   };
@@ -1096,31 +1187,43 @@ function resetCalicataForm() {
   document.getElementById('calicataName').value = '';
   document.getElementById('calicataCuartel').value = cuartelPrevio;
   document.getElementById('calicataSector').value = sectorPrevio;
+  document.getElementById('calicataResponsable').value = responsablePrevio;
   document.getElementById('calicataCC').value = ccPrevia;
   document.getElementById('calicataUltimoRiego').value = '';
   document.getElementById('calicataLocation').value = '';
+  document.getElementById('calicataFoto').value = '';
   document.getElementById('measureDate').value = currentCalicata.date;
   document.getElementById('measureTime').value = currentCalicata.time;
 
   renderLocationStatus();
+  renderFotoPreview();
   renderCalicata();
   renderMeasureTable();
   renderCompactionTable();
   updateStats();
   saveCurrentToStorage();
   showPage('register');
-  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.nav-tab')[0].classList.add('active');
   toast('🆕 Formulario listo para una nueva calicata' + (cuartelPrevio ? ' en ' + cuartelPrevio : ''));
   document.getElementById('calicataName').focus();
 }
 
 // ==================== PAGE NAV ====================
-function showPage(page) {
+// btnEl: el botón de pestaña que originó la navegación (se pasa explícitamente
+// con "this" en el onclick). Antes esta función dependía de la variable global
+// `event`, que no es fiable en todos los navegadores/dispositivos; ahora, si
+// no se pasa btnEl (por ejemplo al llamar showPage('register') desde código),
+// se activa la pestaña correspondiente por índice.
+function showPage(page, btnEl) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.getElementById('page-' + page).classList.add('active');
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
-  event.target.classList.add('active');
+  const tabs = document.querySelectorAll('.nav-tab');
+  if (btnEl) {
+    btnEl.classList.add('active');
+  } else {
+    const idx = page === 'register' ? 0 : (page === 'history' ? 1 : 2);
+    if (tabs[idx]) tabs[idx].classList.add('active');
+  }
   if (page === 'history') renderHistory();
   if (page === 'config') renderConfig();
 }
@@ -1373,6 +1476,7 @@ function onCellChange(depth, position) {
   currentCalicata.name = document.getElementById('calicataName').value.trim();
   currentCalicata.cuartel = document.getElementById('calicataCuartel').value.trim();
   currentCalicata.sector = document.getElementById('calicataSector').value.trim();
+  currentCalicata.responsable = document.getElementById('calicataResponsable').value.trim();
   currentCalicata.capacidadCampo = document.getElementById('calicataCC').value.trim();
   currentCalicata.ultimoRiego = document.getElementById('calicataUltimoRiego').value;
   currentCalicata.location = document.getElementById('calicataLocation').value.trim();
@@ -1501,9 +1605,57 @@ function updateStats() {
 
   drawTrendChart();
   renderSummaryTable();
+  renderCompactionSummary();
 }
 // Alias para compatibilidad con el resto del código
 function updateUI() { updateStats(); }
+
+// ==================== CLASIFICACIÓN DE COMPACTACIÓN ====================
+function classifyCompaction(val) {
+  if (val <= config.compactionBajaMax) return { label: 'Baja', css: 'badge-compact-baja' };
+  if (val <= config.compactionMediaMax) return { label: 'Media', css: 'badge-compact-media' };
+  return { label: 'Alta', css: 'badge-compact-alta' };
+}
+
+function renderCompactionSummary() {
+  const wrap = document.getElementById('compactionSummaryWrap');
+  if (!wrap) return;
+  const c = currentCompaction;
+  if (!c.length) { wrap.innerHTML = ''; return; }
+
+  let html = '<table class="data-table"><thead><tr><th>Profundidad</th><th>Puntos</th><th>Compactación Prom.</th><th>Clasificación</th></tr></thead><tbody>';
+  config.depths.forEach(d => {
+    const dc = c.filter(x => x.depth === d);
+    if (dc.length === 0) {
+      html += '<tr><td><strong>' + d + ' cm</strong></td><td>0/' + COMPACTION_POSITIONS.length + '</td><td>—</td><td>Sin datos</td></tr>';
+    } else {
+      const avg = dc.reduce((s, x) => s + x.value, 0) / dc.length;
+      const cls = classifyCompaction(avg);
+      html += '<tr><td><strong>' + d + ' cm</strong></td><td>' + dc.length + '/' + COMPACTION_POSITIONS.length + '</td>'
+        + '<td><span class="badge badge-water">' + avg.toFixed(1) + ' N</span></td>'
+        + '<td><span class="badge ' + cls.css + '">' + cls.label + '</span></td></tr>';
+    }
+  });
+  html += '</tbody></table>';
+  html += '<div style="font-size:0.75rem; color:var(--text-muted); margin-top:0.5rem;">Clasificación de compactación: Baja ≤ ' + config.compactionBajaMax
+    + ' N · Media ' + config.compactionBajaMax + '–' + config.compactionMediaMax + ' N · Alta &gt; ' + config.compactionMediaMax
+    + ' N. Ajusta estos umbrales en Configuración según tu penetrómetro.</div>';
+  wrap.innerHTML = html;
+}
+
+function saveCompactionThresholds() {
+  const baja = parseFloat(document.getElementById('compactionBajaInput').value);
+  const media = parseFloat(document.getElementById('compactionMediaInput').value);
+  if (isNaN(baja) || isNaN(media) || baja <= 0 || media <= baja) {
+    toast('⚠️ Ingresa valores válidos (Media debe ser mayor que Baja)');
+    return;
+  }
+  config.compactionBajaMax = baja;
+  config.compactionMediaMax = media;
+  saveConfig();
+  updateStats();
+  toast('✅ Umbrales de compactación actualizados');
+}
 
 // ==================== TREND CHART ====================
 function drawTrendChart() {
@@ -1720,6 +1872,11 @@ function renderSummaryTable() {
 
 // ==================== CONFIG ====================
 function renderConfig() {
+  const bajaInput = document.getElementById('compactionBajaInput');
+  const mediaInput = document.getElementById('compactionMediaInput');
+  if (bajaInput) bajaInput.value = config.compactionBajaMax;
+  if (mediaInput) mediaInput.value = config.compactionMediaMax;
+
   const list = document.getElementById('depthList');
   list.innerHTML = '';
   config.depths.forEach((d, i) => {
@@ -1852,8 +2009,10 @@ async function renderHistory() {
         : '';
       const extraTags = [
         item.sector ? ('🧭 ' + escapeHtml(item.sector)) : null,
+        item.responsable ? ('🧑‍🌾 ' + escapeHtml(item.responsable)) : null,
         item.capacidadCampo ? ('💧 CC ' + escapeHtml(item.capacidadCampo) + '%') : null,
-        item.ultimoRiego ? ('🚿 ' + formatDateEs(item.ultimoRiego)) : null
+        item.ultimoRiego ? ('🚿 ' + formatDateEs(item.ultimoRiego)) : null,
+        item.fotoUrl ? '📷 Foto' : null
       ].filter(Boolean).join(' · ');
       html += '<div class="history-card" onclick="loadHistoryItem(' + idx + ')">'
         + '<div class="h-cuartel-tag">' + escapeHtml(cuartel) + '</div>'
@@ -2075,16 +2234,73 @@ function renderCuartelCompareTable(entries) {
   wrap.innerHTML = html;
 }
 
-async function getHistory() {
-  try {
-    const raw = await AppStorage.get('calicataHistory');
-    if (!raw || !raw.value) return [];
-    return JSON.parse(raw.value);
-  } catch(e) { return []; }
-}
-
 function genRecordId() {
   return 'h' + Date.now() + Math.random().toString(36).slice(2, 8);
+}
+
+// Convierte una fila de la tabla Supabase (snake_case) al objeto que usa el
+// resto de la app (camelCase), y viceversa.
+function rowToItem(row) {
+  return {
+    id: row.id,
+    name: row.name || '',
+    cuartel: row.cuartel || '',
+    sector: row.sector || '',
+    responsable: row.responsable || '',
+    capacidadCampo: row.capacidad_campo || '',
+    ultimoRiego: row.ultimo_riego || '',
+    location: row.location || '',
+    lat: row.lat ?? null,
+    lon: row.lon ?? null,
+    accuracy: row.accuracy ?? null,
+    locTimestamp: row.loc_timestamp || null,
+    fotoUrl: row.foto_url || '',
+    date: row.date || '',
+    time: row.time || '',
+    measurements: row.measurements || [],
+    compaction: row.compaction || [],
+    savedAt: row.saved_at || ''
+  };
+}
+
+function itemToRow(item) {
+  return {
+    id: item.id,
+    name: item.name || '',
+    cuartel: item.cuartel || '',
+    sector: item.sector || '',
+    responsable: item.responsable || '',
+    capacidad_campo: item.capacidadCampo || '',
+    ultimo_riego: item.ultimoRiego || '',
+    location: item.location || '',
+    lat: item.lat ?? null,
+    lon: item.lon ?? null,
+    accuracy: item.accuracy ?? null,
+    loc_timestamp: item.locTimestamp || null,
+    foto_url: item.fotoUrl || '',
+    date: item.date || '',
+    time: item.time || '',
+    measurements: item.measurements || [],
+    compaction: item.compaction || [],
+    saved_at: item.savedAt || new Date().toISOString()
+  };
+}
+
+// El historial ahora vive en Supabase (tabla "calicatas"): todo el equipo ve
+// las mismas calicatas, sin importar desde qué dispositivo se registraron.
+async function getHistory() {
+  try {
+    const { data, error } = await sb.from('calicatas')
+      .select('*')
+      .order('saved_at', { ascending: false })
+      .limit(200);
+    if (error) throw error;
+    return (data || []).map(rowToItem);
+  } catch (e) {
+    console.error('Error obteniendo historial de Supabase:', e);
+    toast('⚠️ No se pudo cargar el historial desde la nube. Revisa tu conexión.');
+    return [];
+  }
 }
 
 async function saveToHistory() {
@@ -2092,13 +2308,13 @@ async function saveToHistory() {
   if (!name) { toast('⚠️ Ingresa un nombre para la calicata'); return; }
   if (currentMeasurements.length === 0 && currentCompaction.length === 0) { toast('⚠️ No hay mediciones para guardar'); return; }
 
-  const hist = await getHistory();
   const cuartel = document.getElementById('calicataCuartel').value.trim();
   const entry = {
     id: currentCalicata.recordId || genRecordId(),
     name,
     cuartel,
     sector: document.getElementById('calicataSector').value.trim(),
+    responsable: document.getElementById('calicataResponsable').value.trim(),
     capacidadCampo: document.getElementById('calicataCC').value.trim(),
     ultimoRiego: document.getElementById('calicataUltimoRiego').value,
     location: document.getElementById('calicataLocation').value.trim(),
@@ -2106,6 +2322,7 @@ async function saveToHistory() {
     lon: currentCalicata.lon,
     accuracy: currentCalicata.accuracy,
     locTimestamp: currentCalicata.locTimestamp,
+    fotoUrl: currentCalicata.fotoUrl || '',
     date: document.getElementById('measureDate').value,
     time: document.getElementById('measureTime').value,
     measurements: currentMeasurements,
@@ -2113,26 +2330,20 @@ async function saveToHistory() {
     savedAt: new Date().toISOString()
   };
 
-  // Actualiza si ya existe este registro (mismo id); si no, lo agrega como una
-  // calicata nueva — así cada visita a un cuartel queda guardada por separado
-  // y se puede comparar en el tiempo, aunque se repita el nombre o el cuartel.
-  const existingIdx = hist.findIndex(h => h.id === entry.id);
-  if (existingIdx >= 0) {
-    hist[existingIdx] = entry;
-  } else {
-    hist.unshift(entry);
-  }
   // Cancela cualquier guardado de borrador pendiente para no chocar con esta escritura explícita
   if (draftSaveTimer) { clearTimeout(draftSaveTimer); draftSaveTimer = null; }
 
   currentCalicata.recordId = entry.id;
   try {
-    await AppStorage.set('calicataHistory', JSON.stringify(hist.slice(0, 200)));
-    toast('✅ Calicata guardada en historial' + (cuartel ? ' — ' + cuartel : ''));
+    const { error } = await sb.from('calicatas').upsert(itemToRow(entry), { onConflict: 'id' });
+    if (error) throw error;
+    clearDraftFromStorage();
+    toast('✅ Calicata guardada en la nube' + (cuartel ? ' — ' + cuartel : ''));
     populateCuartelDatalist();
+    populateResponsableDatalist();
   } catch(e) {
-    console.error('Error guardando en historial:', e);
-    toast('⚠️ No se pudo guardar: ' + (e && e.message ? e.message : 'intenta de nuevo en unos segundos'));
+    console.error('Error guardando en Supabase:', e);
+    toast('⚠️ No se pudo guardar en la nube (revisa tu conexión). El formulario sigue respaldado en este dispositivo — vuelve a intentar "Guardar en Historial".');
   }
 }
 
@@ -2141,17 +2352,12 @@ async function loadHistoryItem(index) {
   const item = hist[index];
   if (!item) return;
 
-  // Respaldo para registros antiguos guardados antes de tener id propio
-  if (!item.id) {
-    item.id = genRecordId();
-    try { await AppStorage.set('calicataHistory', JSON.stringify(hist)); } catch(e) {}
-  }
-
   currentCalicata = {
     recordId: item.id,
     name: item.name || '',
     cuartel: item.cuartel || '',
     sector: item.sector || '',
+    responsable: item.responsable || '',
     capacidadCampo: item.capacidadCampo || '',
     ultimoRiego: item.ultimoRiego || '',
     location: item.location || '',
@@ -2159,6 +2365,7 @@ async function loadHistoryItem(index) {
     lon: item.lon ?? null,
     accuracy: item.accuracy ?? null,
     locTimestamp: item.locTimestamp ?? null,
+    fotoUrl: item.fotoUrl || null,
     date: item.date || new Date().toISOString().split('T')[0],
     time: item.time || ''
   };
@@ -2168,12 +2375,15 @@ async function loadHistoryItem(index) {
   document.getElementById('calicataName').value = currentCalicata.name;
   document.getElementById('calicataCuartel').value = currentCalicata.cuartel;
   document.getElementById('calicataSector').value = currentCalicata.sector;
+  document.getElementById('calicataResponsable').value = currentCalicata.responsable;
   document.getElementById('calicataCC').value = currentCalicata.capacidadCampo;
   document.getElementById('calicataUltimoRiego').value = currentCalicata.ultimoRiego;
   document.getElementById('calicataLocation').value = currentCalicata.location;
+  document.getElementById('calicataFoto').value = '';
   document.getElementById('measureDate').value = currentCalicata.date;
   document.getElementById('measureTime').value = currentCalicata.time;
   renderLocationStatus();
+  renderFotoPreview();
 
   saveCurrentToStorage();
   renderCalicata();
@@ -2181,19 +2391,23 @@ async function loadHistoryItem(index) {
   renderCompactionTable();
   updateStats();
   showPage('register');
-  // Update nav tab
-  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.nav-tab')[0].classList.add('active');
   toast('📂 Calicata cargada: ' + currentCalicata.name);
 }
 
 async function deleteHistoryItem(index) {
-  if (!confirm('¿Eliminar esta calicata del historial?')) return;
+  if (!confirm('¿Eliminar esta calicata del historial? Se eliminará para todo el equipo.')) return;
   const hist = await getHistory();
-  hist.splice(index, 1);
-  try { await AppStorage.set('calicataHistory', JSON.stringify(hist)); } catch(e) {}
+  const item = hist[index];
+  if (!item) return;
+  try {
+    const { error } = await sb.from('calicatas').delete().eq('id', item.id);
+    if (error) throw error;
+    toast('🗑️ Eliminada del historial');
+  } catch(e) {
+    console.error('Error eliminando de Supabase:', e);
+    toast('⚠️ No se pudo eliminar (revisa tu conexión)');
+  }
   renderHistory();
-  toast('🗑️ Eliminada del historial');
 }
 
 async function exportCuartelComparisonPDF(cuartel) {
@@ -2378,10 +2592,16 @@ async function downloadHistoryPDF(index) {
 }
 
 async function borrarTodoHistorial() {
-  if (!confirm('¿Eliminar TODO el historial? Esta acción es irreversible.')) return;
-  try { await AppStorage.delete('calicataHistory'); } catch(e) {}
+  if (!confirm('¿Eliminar TODO el historial? Esta acción es irreversible y afecta a todo el equipo (todos los dispositivos que usan la app).')) return;
+  try {
+    const { error } = await sb.from('calicatas').delete().neq('id', '__never_matches__');
+    if (error) throw error;
+    toast('Historial eliminado completamente');
+  } catch(e) {
+    console.error('Error borrando historial en Supabase:', e);
+    toast('⚠️ No se pudo eliminar el historial (revisa tu conexión)');
+  }
   renderHistory();
-  toast('Historial eliminado completamente');
 }
 
 // ==================== EXPORTAR HISTORIAL A EXCEL ====================
@@ -2413,6 +2633,7 @@ async function exportHistoryToExcel() {
         'Cuartel': item.cuartel || '',
         'Sector': item.sector || '',
         'Nombre Calicata': item.name || '',
+        'Responsable': item.responsable || '',
         'Capacidad de Campo (%)': item.capacidadCampo || '',
         'Último Riego': item.ultimoRiego || '',
         'Ubicación (texto)': item.location || '',
@@ -2425,6 +2646,7 @@ async function exportHistoryToExcel() {
         'Puntos Compactación': cs.length + '/' + (config.depths.length * COMPACTION_POSITIONS.length),
         'Compactación Promedio (N)': compAvg !== null ? Number(compAvg.toFixed(2)) : '',
         'Profundidades Medidas (cm)': depths,
+        'Foto': item.fotoUrl || '',
         'Guardado el': item.savedAt ? new Date(item.savedAt).toLocaleString('es-CL') : ''
       };
     });
@@ -2473,9 +2695,9 @@ async function exportHistoryToExcel() {
   const wsCompaction = XLSX.utils.json_to_sheet(compactionRows);
 
   wsResumen['!cols'] = [
-    { wch: 11 }, { wch: 7 }, { wch: 14 }, { wch: 14 }, { wch: 20 }, { wch: 14 },
+    { wch: 11 }, { wch: 7 }, { wch: 14 }, { wch: 14 }, { wch: 20 }, { wch: 16 }, { wch: 14 },
     { wch: 12 }, { wch: 24 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 14 },
-    { wch: 16 }, { wch: 14 }, { wch: 16 }, { wch: 20 }, { wch: 20 }, { wch: 18 }
+    { wch: 16 }, { wch: 14 }, { wch: 16 }, { wch: 20 }, { wch: 20 }, { wch: 40 }, { wch: 18 }
   ];
   wsDetalle['!cols'] = [
     { wch: 11 }, { wch: 14 }, { wch: 14 }, { wch: 20 }, { wch: 14 }, { wch: 12 },
@@ -2510,19 +2732,21 @@ async function exportPDF() {
     name,
     cuartel: document.getElementById('calicataCuartel').value.trim(),
     sector: document.getElementById('calicataSector').value.trim(),
+    responsable: document.getElementById('calicataResponsable').value.trim(),
     capacidadCampo: document.getElementById('calicataCC').value.trim(),
     ultimoRiego: document.getElementById('calicataUltimoRiego').value,
     location: document.getElementById('calicataLocation').value.trim(),
     lat: currentCalicata.lat,
     lon: currentCalicata.lon,
     accuracy: currentCalicata.accuracy,
+    fotoUrl: currentCalicata.fotoUrl || '',
     date: document.getElementById('measureDate').value,
     time: document.getElementById('measureTime').value,
     measurements: currentMeasurements,
     compaction: currentCompaction
   };
 
-  saveToHistory();
+  await saveToHistory();
   generatePDF(item);
 }
 
@@ -2642,6 +2866,10 @@ async function generatePDF(item) {
       item.ultimoRiego ? ('Último Riego: ' + formatDateEs(item.ultimoRiego)) : null
     ].filter(Boolean).join('   |   ');
     doc.text(ccRiegoTxt, margin, y);
+    y += 4.5;
+  }
+  if (item.responsable) {
+    doc.text('Responsable: ' + item.responsable, margin, y);
     y += 4.5;
   }
   doc.text('Ubicación: ' + (item.location || 'No especificada'), margin, y);
@@ -2833,7 +3061,7 @@ async function generatePDF(item) {
     doc.setFontSize(8);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(122, 92, 62);
-    doc.text('Compactación Prom: ' + avgComp.toFixed(2) + ' N', rX2 + 3, ry2 + 5);
+    doc.text('Compactación Prom: ' + avgComp.toFixed(2) + ' N (' + classifyCompaction(avgComp).label + ')', rX2 + 3, ry2 + 5);
     doc.setFont('helvetica', 'normal');
     doc.text('(Min ' + minComp.toFixed(1) + ' N / Max ' + maxComp.toFixed(1) + ' N)', rX2 + 3, ry2 + 9.5);
     doc.setTextColor(107, 78, 61);
@@ -2889,17 +3117,75 @@ async function generatePDF(item) {
     });
   }
 
+  // ---------- PÁGINA 3 (opcional): Foto del perfil de suelo ----------
+  if (item.fotoUrl) {
+    toast('📸 Cargando foto para el informe...');
+    await addFotoPageToPDF(doc, item, pageW, margin);
+  }
+
   // Footer
   const pageCount = doc.internal.getNumberOfPages();
   for (let i = 1; i <= pageCount; i++) {
     doc.setPage(i);
     doc.setFontSize(8);
     doc.setTextColor(150, 140, 130);
-    doc.text('Calicata Pro · Informe de 2 páginas (Humedad/CE y Compactación) · Página ' + i + ' de ' + pageCount, pageW / 2, 292, { align: 'center' });
+    doc.text('Calicata Pro · Informe generado automáticamente · Página ' + i + ' de ' + pageCount, pageW / 2, 292, { align: 'center' });
   }
 
   doc.save('calicata_' + (item.name || 'informe').replace(/\s+/g, '_') + '.pdf');
   toast('📄 PDF generado exitosamente');
+}
+
+// Descarga la foto guardada en Supabase Storage y la convierte a dataURL
+// para poder incrustarla en el PDF con jsPDF.
+async function urlToDataURL(url) {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const blob = await res.blob();
+    return await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  } catch (e) {
+    console.error('No se pudo cargar la foto para el PDF:', e);
+    return null;
+  }
+}
+
+async function addFotoPageToPDF(doc, item, pageW, margin) {
+  const dataUrl = await urlToDataURL(item.fotoUrl);
+  if (!dataUrl) { toast('⚠️ No se pudo incluir la foto en el PDF (revisa tu conexión)'); return; }
+
+  doc.addPage();
+  const pageH = doc.internal.pageSize.getHeight();
+  doc.setFillColor(74, 124, 89);
+  doc.rect(0, 0, pageW, 22, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(15);
+  doc.setFont('helvetica', 'bold');
+  doc.text('FOTO DEL PERFIL DE SUELO', margin, 10);
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'normal');
+  doc.text((item.name || 'Sin nombre') + (item.cuartel ? '  ·  Cuartel: ' + item.cuartel : ''), margin, 17);
+
+  try {
+    const img = new Image();
+    await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject; img.src = dataUrl; });
+    const maxW = pageW - margin * 2;
+    const maxH = pageH - 40;
+    let w = img.width, h = img.height;
+    const scale = Math.min(maxW / w, maxH / h, 1);
+    w *= scale; h *= scale;
+    doc.addImage(dataUrl, 'JPEG', (pageW - w) / 2, 30, w, h);
+  } catch (e) {
+    console.error('Error insertando la foto en el PDF:', e);
+    doc.setFontSize(10);
+    doc.setTextColor(150, 140, 130);
+    doc.text('No se pudo cargar la foto.', margin, 34);
+  }
 }
 
 // ==================== TOAST ====================
@@ -2920,6 +3206,7 @@ function toast(msg, type) {
 document.getElementById('calicataName').addEventListener('change', scheduleSaveDraft);
 document.getElementById('calicataCuartel').addEventListener('change', scheduleSaveDraft);
 document.getElementById('calicataSector').addEventListener('change', scheduleSaveDraft);
+document.getElementById('calicataResponsable').addEventListener('change', scheduleSaveDraft);
 document.getElementById('calicataCC').addEventListener('change', scheduleSaveDraft);
 document.getElementById('calicataUltimoRiego').addEventListener('change', scheduleSaveDraft);
 document.getElementById('calicataLocation').addEventListener('change', onLocationFieldChange);
