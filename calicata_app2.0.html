@@ -1329,15 +1329,19 @@ function goToMenu() {
 }
 
 // ==================== CALICATA RENDER (SVG) ====================
-function buildCalicataSVG(depthsInput, measurementsInput, selected, interactive) {
+function buildCalicataSVG(depthsInput, measurementsInput, selected, interactive, showTree) {
   const depths = depthsInput || config.depths;
   const measurements = measurementsInput || [];
   interactive = interactive !== false;
+  showTree = showTree !== false; // por defecto se muestra (informes); el ingreso de datos lo llama con false
 
   const maxDepth = 100; // calicata de 1 m x 1 m x 1 m
-  const svgW = 340, svgH = 470;
-  const soilLeft = 46, soilRight = 294, soilTop = 150, soilBottom = 440;
-  const pxPerCm = (soilBottom - soilTop) / maxDepth;
+  const boxH = 290;
+  const soilLeft = 46, soilRight = 294;
+  const soilTop = showTree ? 150 : 26;
+  const soilBottom = soilTop + boxH;
+  const svgW = 340, svgH = soilBottom + 30;
+  const pxPerCm = boxH / maxDepth;
   const cx = (soilLeft + soilRight) / 2;
   const xFor = {
     izq: soilLeft + (soilRight - soilLeft) * 0.18,
@@ -1355,34 +1359,35 @@ function buildCalicataSVG(depthsInput, measurementsInput, selected, interactive)
     + '<linearGradient id="soilBotGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#D4B896"/><stop offset="100%" stop-color="#B39870"/></linearGradient>'
     + '</defs>';
 
-  // fondo
-  s += '<rect x="0" y="0" width="' + svgW + '" height="' + soilTop + '" fill="#F5F0E8"/>';
+  if (showTree) {
+    // fondo
+    s += '<rect x="0" y="0" width="' + svgW + '" height="' + soilTop + '" fill="#F5F0E8"/>';
 
-  // === Árbol (copa redondeada tipo la imagen de referencia) ===
-  const tcx = svgW / 2, tcy = 78;
-  const blobs = [[-46,6,34],[46,6,34],[0,-20,40],[-24,-6,30],[24,-6,30],[0,22,34],[-30,20,24],[30,20,24]];
-  s += '<g>';
-  blobs.forEach(function (b) { s += '<circle cx="' + (tcx+b[0]) + '" cy="' + (tcy+b[1]) + '" r="' + b[2] + '" fill="#4A7C59"/>'; });
-  const highlights = [[-20,-16,16],[18,-12,14],[0,4,18]];
-  highlights.forEach(function (h) { s += '<circle cx="' + (tcx+h[0]) + '" cy="' + (tcy+h[1]) + '" r="' + h[2] + '" fill="#7BAE7F" opacity="0.55"/>'; });
-  s += '</g>';
+    // === Árbol (copa redondeada tipo la imagen de referencia) ===
+    const tcx = svgW / 2, tcy = 78;
+    const blobs = [[-46,6,34],[46,6,34],[0,-20,40],[-24,-6,30],[24,-6,30],[0,22,34],[-30,20,24],[30,20,24]];
+    s += '<g>';
+    blobs.forEach(function (b) { s += '<circle cx="' + (tcx+b[0]) + '" cy="' + (tcy+b[1]) + '" r="' + b[2] + '" fill="#4A7C59"/>'; });
+    const highlights = [[-20,-16,16],[18,-12,14],[0,4,18]];
+    highlights.forEach(function (h) { s += '<circle cx="' + (tcx+h[0]) + '" cy="' + (tcy+h[1]) + '" r="' + h[2] + '" fill="#7BAE7F" opacity="0.55"/>'; });
+    s += '</g>';
 
-  // tronco
-  const trunkTop = tcy + 46;
-  s += '<rect x="' + (tcx-11) + '" y="' + trunkTop + '" width="22" height="' + (soilTop-trunkTop+6) + '" rx="4" fill="#6B4423"/>';
+    // tronco
+    const trunkTop = tcy + 46;
+    s += '<rect x="' + (tcx-11) + '" y="' + trunkTop + '" width="22" height="' + (soilTop-trunkTop+6) + '" rx="4" fill="#6B4423"/>';
 
-  // raíces
-  s += '<path d="M' + (tcx-8) + ',' + soilTop + ' C ' + (tcx-50) + ',' + (soilTop+16) + ' ' + (tcx-65) + ',' + (soilTop+30) + ' ' + (tcx-85) + ',' + (soilTop+55) + '" stroke="#4A2E15" stroke-width="5" fill="none" stroke-linecap="round"/>';
-  s += '<path d="M' + (tcx+8) + ',' + soilTop + ' C ' + (tcx+50) + ',' + (soilTop+16) + ' ' + (tcx+65) + ',' + (soilTop+30) + ' ' + (tcx+85) + ',' + (soilTop+55) + '" stroke="#4A2E15" stroke-width="5" fill="none" stroke-linecap="round"/>';
-  s += '<path d="M' + tcx + ',' + soilTop + ' C ' + (tcx-8) + ',' + (soilTop+32) + ' ' + (tcx+8) + ',' + (soilTop+55) + ' ' + tcx + ',' + (soilTop+85) + '" stroke="#4A2E15" stroke-width="5" fill="none" stroke-linecap="round"/>';
-  s += '<path d="M' + (tcx-6) + ',' + (soilTop+10) + ' C ' + (tcx-30) + ',' + (soilTop+40) + ' ' + (tcx-40) + ',' + (soilTop+60) + ' ' + (tcx-45) + ',' + (soilTop+90) + '" stroke="#4A2E15" stroke-width="3.5" fill="none" stroke-linecap="round" opacity="0.8"/>';
-  s += '<path d="M' + (tcx+6) + ',' + (soilTop+10) + ' C ' + (tcx+30) + ',' + (soilTop+40) + ' ' + (tcx+40) + ',' + (soilTop+60) + ' ' + (tcx+45) + ',' + (soilTop+90) + '" stroke="#4A2E15" stroke-width="3.5" fill="none" stroke-linecap="round" opacity="0.8"/>';
+    // raíces
+    s += '<path d="M' + (tcx-8) + ',' + soilTop + ' C ' + (tcx-50) + ',' + (soilTop+16) + ' ' + (tcx-65) + ',' + (soilTop+30) + ' ' + (tcx-85) + ',' + (soilTop+55) + '" stroke="#4A2E15" stroke-width="5" fill="none" stroke-linecap="round"/>';
+    s += '<path d="M' + (tcx+8) + ',' + soilTop + ' C ' + (tcx+50) + ',' + (soilTop+16) + ' ' + (tcx+65) + ',' + (soilTop+30) + ' ' + (tcx+85) + ',' + (soilTop+55) + '" stroke="#4A2E15" stroke-width="5" fill="none" stroke-linecap="round"/>';
+    s += '<path d="M' + tcx + ',' + soilTop + ' C ' + (tcx-8) + ',' + (soilTop+32) + ' ' + (tcx+8) + ',' + (soilTop+55) + ' ' + tcx + ',' + (soilTop+85) + '" stroke="#4A2E15" stroke-width="5" fill="none" stroke-linecap="round"/>';
+    s += '<path d="M' + (tcx-6) + ',' + (soilTop+10) + ' C ' + (tcx-30) + ',' + (soilTop+40) + ' ' + (tcx-40) + ',' + (soilTop+60) + ' ' + (tcx-45) + ',' + (soilTop+90) + '" stroke="#4A2E15" stroke-width="3.5" fill="none" stroke-linecap="round" opacity="0.8"/>';
+    s += '<path d="M' + (tcx+6) + ',' + (soilTop+10) + ' C ' + (tcx+30) + ',' + (soilTop+40) + ' ' + (tcx+40) + ',' + (soilTop+60) + ' ' + (tcx+45) + ',' + (soilTop+90) + '" stroke="#4A2E15" stroke-width="3.5" fill="none" stroke-linecap="round" opacity="0.8"/>';
 
-  // línea de pasto en la superficie
-  s += '<rect x="' + (soilLeft-8) + '" y="' + (soilTop-5) + '" width="' + (soilRight-soilLeft+16) + '" height="7" rx="3" fill="#2D5A3D"/>';
+    // línea de pasto en la superficie
+    s += '<rect x="' + (soilLeft-8) + '" y="' + (soilTop-5) + '" width="' + (soilRight-soilLeft+16) + '" height="7" rx="3" fill="#2D5A3D"/>';
+  }
 
   // === Perfil de suelo con 3 bandas de color (como la imagen) ===
-  const boxH = soilBottom - soilTop;
   s += '<rect x="' + soilLeft + '" y="' + soilTop + '" width="' + (soilRight-soilLeft) + '" height="' + (boxH*0.36) + '" fill="url(#soilTopGrad)"/>';
   s += '<rect x="' + soilLeft + '" y="' + (soilTop+boxH*0.36) + '" width="' + (soilRight-soilLeft) + '" height="' + (boxH*0.34) + '" fill="url(#soilMidGrad)"/>';
   s += '<rect x="' + soilLeft + '" y="' + (soilTop+boxH*0.70) + '" width="' + (soilRight-soilLeft) + '" height="' + (boxH*0.30) + '" fill="url(#soilBotGrad)"/>';
@@ -1512,7 +1517,7 @@ function buildCompactionSVG(depthsInput, compactionInput) {
 function renderCalicata() {
   const container = document.getElementById('calicataDiagram');
   const depths = [...config.depths].sort((a, b) => a - b);
-  container.innerHTML = buildCalicataSVG(depths, currentMeasurements, selectedPoint, true);
+  container.innerHTML = buildCalicataSVG(depths, currentMeasurements, selectedPoint, true, false);
 }
 
 function selectPoint(depth, position) {
@@ -2908,9 +2913,9 @@ async function captureCalicataImage(item) {
   let svgString;
   if (item) {
     const itemDepths = [...new Set((item.measurements || []).map(m => m.depth))].sort((a, b) => a - b);
-    svgString = buildCalicataSVG(itemDepths.length ? itemDepths : config.depths, item.measurements || [], null, false);
+    svgString = buildCalicataSVG(itemDepths.length ? itemDepths : config.depths, item.measurements || [], null, false, true);
   } else {
-    svgString = buildCalicataSVG(config.depths, currentMeasurements, null, false);
+    svgString = buildCalicataSVG(config.depths, currentMeasurements, null, false, true);
   }
   return svgStringToPng(svgString, 340, 470);
 }
